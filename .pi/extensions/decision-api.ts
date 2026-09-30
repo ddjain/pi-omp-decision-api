@@ -208,7 +208,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 
 	const showStats = async (_args: string, ctx: ExtensionCommandContext) => {
 		const records = ctx.sessionManager.getEntries().filter(
-			(entry) => entry.type === "custom" && entry.customType === "nimble-decision",
+			(entry) => entry.type === "custom" && entry.customType === "decision-api",
 		);
 		const successful = records.filter((entry) => isRecord(entry.data) && entry.data.kind === "decision");
 		const failed = records.length - successful.length;
@@ -287,7 +287,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 		try {
 			currentDecision = await classify(state, ctx.signal);
 			if (auditEnabled) {
-				pi.appendEntry("nimble-decision", {
+				pi.appendEntry("decision-api", {
 					kind: "decision",
 					timestamp: new Date().toISOString(),
 					model: decisionModel,
@@ -303,7 +303,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 			currentDecision = undefined;
 			const reason = error instanceof Error ? error.message : String(error);
 			if (auditEnabled) {
-				pi.appendEntry("nimble-decision", {
+				pi.appendEntry("decision-api", {
 					kind: "error",
 					timestamp: new Date().toISOString(),
 					model: decisionModel,
@@ -333,16 +333,16 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 
 			const { route } = currentDecision;
 			if (route === "clarify" || route === "explain") {
-				return { block: true, reason: `Nimble route is ${route}; no project tool is allowed for this step.` };
+				return { block: true, reason: `Decision API route is ${route}; no project tool is allowed for this step.` };
 			}
 			if (route === "inspect" && !READ_ONLY_TOOLS[event.toolName]) {
-				return { block: true, reason: "Nimble route is inspect; only read-only project tools are allowed." };
+				return { block: true, reason: "Decision API route is inspect; only read-only project tools are allowed." };
 			}
 			if (route === "change" && EXECUTION_TOOLS[event.toolName]) {
-				return { block: true, reason: "Nimble route is change; run commands only after a later routing decision." };
+				return { block: true, reason: "Decision API route is change; run commands only after a later decision." };
 			}
 			if (route === "run" && WRITE_TOOLS[event.toolName]) {
-				return { block: true, reason: "Nimble route is run; file changes are not allowed for this step." };
+				return { block: true, reason: "Decision API route is run; file changes are not allowed for this step." };
 			}
 		});
 	}

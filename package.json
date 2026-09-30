@@ -8,14 +8,14 @@
     ".pi",
     ".omp",
     "README.md",
-    "NIMBLE_PI.md",
+    "DECISION_API.md",
     "LICENSE"
   ],
   "omp": {
-    "extensions": ["./.omp/extensions/nimble-decision.ts"]
+    "extensions": ["./.omp/extensions/decision-api.ts"]
   },
   "pi": {
-    "extensions": ["./.pi/extensions/nimble-decision.ts"]
+    "extensions": ["./.pi/extensions/decision-api.ts"]
   },
   "keywords": [
     "pi",

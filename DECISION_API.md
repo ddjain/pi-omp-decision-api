@@ -1,19 +1,19 @@
-# Nimble routing in Pi and OMP
+# Decision API routing for Pi and OMP
 
-This project includes a shared Nimble routing implementation:
+This project includes a shared decision API implementation:
 
-- `.pi/extensions/nimble-decision.ts` for Pi
-- `.omp/extensions/nimble-decision.ts` for OMP, which reuses the Pi implementation
+- `.pi/extensions/decision-api.ts` for Pi
+- `.omp/extensions/decision-api.ts` for OMP, which reuses the Pi implementation
 
 Both agents share the same routing behavior, tool gate, audit records, and environment variables.
 
 ## Pi
 
-Pi auto-loads `.pi/extensions/nimble-decision.ts` when started in this project.
+Pi auto-loads `.pi/extensions/decision-api.ts` when started in this project.
 
 ## OMP
 
-OMP auto-loads `.omp/extensions/nimble-decision.ts` when started in this project.
+OMP auto-loads `.omp/extensions/decision-api.ts` when started in this project.
 
 ```bash
 omp
@@ -22,10 +22,10 @@ omp
 To load it explicitly:
 
 ```bash
-omp --extension ./.omp/extensions/nimble-decision.ts
+omp --extension ./.omp/extensions/decision-api.ts
 ```
 
-The OMP entrypoint is intentionally a small re-export. Keep behavior changes in `.pi/extensions/nimble-decision.ts` so both agents remain identical.
+The OMP entrypoint is intentionally a small re-export. Keep behavior changes in `.pi/extensions/decision-api.ts` so both agents remain identical.
 
 ## Setup
 
@@ -86,7 +86,7 @@ Use either command alias:
 /nimble stats
 ```
 
-`enable` and `disable` persist the state in the current agent session. When disabled, no Nimble request is made and tool gating is bypassed. `/nimble-stats` remains available as a compatibility alias for `/decision-api stats`.
+`enable` and `disable` persist the state in the current agent session. When disabled, no decision-model request is made and tool gating is bypassed. `/nimble-stats` remains available as a compatibility alias for `/decision-api stats`.
 
 ## Audit log
 
@@ -98,7 +98,7 @@ Auditing is enabled by default. Each successful decision records:
 - Nimble's route, confidence, and probabilities
 - request duration
 
-Failed Nimble requests are recorded separately with the error. Records are stored as agent-session custom entries and do not enter the LLM context. Use `/nimble-stats` inside Pi or OMP:
+Failed decision-model requests are recorded separately with the error. Records are stored as agent-session custom entries and do not enter the LLM context. Use `/nimble-stats` inside Pi or OMP:
 
 ```text
 /nimble-stats

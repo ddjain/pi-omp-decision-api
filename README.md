@@ -87,7 +87,7 @@ Clone this repository, then copy or symlink the extension directories into the p
 
 ```bash
 mkdir -p .pi/extensions
-cp /path/to/pi-omp-decision-api/.pi/extensions/nimble-decision.ts .pi/extensions/
+cp /path/to/pi-omp-decision-api/.pi/extensions/decision-api.ts .pi/extensions/
 ```
 
 Pi auto-loads `.pi/extensions/*.ts`.
@@ -96,8 +96,8 @@ Pi auto-loads `.pi/extensions/*.ts`.
 
 ```bash
 mkdir -p .omp/extensions
-cp /path/to/pi-omp-decision-api/.omp/extensions/nimble-decision.ts .omp/extensions/
-cp /path/to/pi-omp-decision-api/.pi/extensions/nimble-decision.ts .pi/extensions/
+cp /path/to/pi-omp-decision-api/.omp/extensions/decision-api.ts .omp/extensions/
+cp /path/to/pi-omp-decision-api/.pi/extensions/decision-api.ts .pi/extensions/
 ```
 
 The OMP entrypoint reuses the shared implementation. Both files are needed when installing into another project.
@@ -105,8 +105,8 @@ The OMP entrypoint reuses the shared implementation. Both files are needed when 
 Alternatively, load either extension explicitly:
 
 ```bash
-pi -e /path/to/pi-omp-decision-api/.pi/extensions/nimble-decision.ts
-omp -e /path/to/pi-omp-decision-api/.omp/extensions/nimble-decision.ts
+pi -e /path/to/pi-omp-decision-api/.pi/extensions/decision-api.ts
+omp -e /path/to/pi-omp-decision-api/.omp/extensions/decision-api.ts
 ```
 
 Start the agent from the target project:
@@ -239,8 +239,8 @@ Do not commit `.env` files, API keys, session files, logs, model caches, or cred
 ## Repository layout
 
 ```text
-.pi/extensions/nimble-decision.ts   Shared Pi-compatible implementation
-.omp/extensions/nimble-decision.ts   OMP entrypoint
-NIMBLE_PI.md                         Additional implementation notes
+.pi/extensions/decision-api.ts   Shared Pi-compatible implementation
+.omp/extensions/decision-api.ts   OMP entrypoint
+DECISION_API.md                   Additional implementation notes
 README.md                            Installation and usage guide
 ```
