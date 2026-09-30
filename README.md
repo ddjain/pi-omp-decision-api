@@ -127,20 +127,6 @@ Both agents expose the same commands:
 /decision-api stats
 ```
 
-Short alias:
-
-```text
-/nimble enable
-/nimble disable
-/nimble stats
-```
-
-Compatibility alias:
-
-```text
-/nimble-stats
-```
-
 ### Enable and disable
 
 ```text

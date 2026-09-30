@@ -3,7 +3,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 type Route = "clarify" | "inspect" | "change" | "run" | "explain";
 
-type NimbleDecision = {
+type DecisionResult = {
 	route: Route;
 	confidence?: number;
 	probabilities?: Record<string, number>;
@@ -23,7 +23,7 @@ type DecisionAudit = {
 		criteria: Record<Route, string>;
 	};
 	state: DecisionInput;
-	answer?: NimbleDecision;
+	answer?: DecisionResult;
 	error?: string;
 	durationMs: number;
 };
@@ -139,7 +139,7 @@ function decisionApiConfig(): DecisionApiConfig {
 	};
 }
 
-async function classify(state: unknown, signal: AbortSignal | undefined): Promise<NimbleDecision> {
+async function classify(state: unknown, signal: AbortSignal | undefined): Promise<DecisionResult> {
 	const config = decisionApiConfig();
 	const timeoutMs = envNumber("TYPESAFE_TIMEOUT_MS", envNumber("NIMBLE_TIMEOUT_MS", 10000));
 	const timeoutSignal = AbortSignal.timeout(timeoutMs);
@@ -175,7 +175,7 @@ async function classify(state: unknown, signal: AbortSignal | undefined): Promis
 	return { route, confidence, probabilities };
 }
 
-function decisionText(decision: NimbleDecision): string {
+function decisionText(decision: DecisionResult): string {
 	const confidence = decision.confidence === undefined ? "" : ` (${decision.confidence.toFixed(3)} confidence)`;
 	return `Next route: ${decision.route}${confidence}. ${ROUTES[decision.route]}`;
 }
@@ -198,13 +198,13 @@ function auditLine(value: unknown): string {
 	return `${timestamp} | Q: ${question} | Input: ${state} | A: ${answer}`;
 }
 
-export default function nimbleDecision(pi: ExtensionAPI) {
+export default function decisionApi(pi: ExtensionAPI) {
 	const required = envBool("NIMBLE_REQUIRED", true);
 	const gateTools = envBool("NIMBLE_GATE_TOOLS", true);
 	const auditEnabled = envBool("NIMBLE_AUDIT", true);
 	const decisionModel = decisionApiConfig().model;
 	let enabled = envBool("NIMBLE_ENABLED", true);
-	let currentDecision: NimbleDecision | undefined;
+	let currentDecision: DecisionResult | undefined;
 
 	const showStats = async (_args: string, ctx: ExtensionCommandContext) => {
 		const records = ctx.sessionManager.getEntries().filter(
@@ -227,7 +227,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 		enabled = value;
 		currentDecision = undefined;
 		pi.appendEntry("decision-api-state", { enabled });
-		ctx.ui.setStatus("nimble", `Decision API ${enabled ? "enabled" : "disabled"}`);
+		ctx.ui.setStatus("decision-api", `Decision API ${enabled ? "enabled" : "disabled"}`);
 		ctx.ui.notify(`Decision API ${enabled ? "enabled" : "disabled"}.`, "info");
 	};
 
@@ -245,20 +245,12 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 			await showStats(action, ctx);
 			return;
 		}
-		ctx.ui.notify("Usage: /decision-api enable|disable|stats (also available as /nimble ...)", "warning");
+		ctx.ui.notify("Usage: /decision-api enable|disable|stats", "warning");
 	};
 
 	pi.registerCommand("decision-api", {
 		description: "Enable, disable, or inspect the decision API",
 		handler: handleDecisionCommand,
-	});
-	pi.registerCommand("nimble", {
-		description: "Alias for /decision-api",
-		handler: handleDecisionCommand,
-	});
-	pi.registerCommand("nimble-stats", {
-		description: "Show decision API count and recent questions/answers",
-		handler: showStats,
 	});
 
 	pi.on("session_start", (_event, ctx) => {
@@ -269,14 +261,14 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 				break;
 			}
 		}
-		ctx.ui.setStatus("nimble", `Decision API ${enabled ? "enabled" : "disabled"}`);
+		ctx.ui.setStatus("decision-api", `Decision API ${enabled ? "enabled" : "disabled"}`);
 	});
 
 	// `context` runs immediately before every LLM call, including calls after tools.
 	pi.on("context", async (event, ctx) => {
 		if (!enabled) {
 			currentDecision = undefined;
-			ctx.ui.setStatus("nimble", "Decision API disabled");
+			ctx.ui.setStatus("decision-api", "Decision API disabled");
 			return;
 		}
 		const startedAt = Date.now();
@@ -297,7 +289,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 					durationMs: Date.now() - startedAt,
 				} satisfies DecisionAudit);
 			}
-			ctx.ui.setStatus("nimble", `Decision API: ${decisionModel} — ${decisionText(currentDecision)}`);
+			ctx.ui.setStatus("decision-api", `Decision API: ${decisionModel} — ${decisionText(currentDecision)}`);
 			return { messages: addRoutingMessage(event.messages, decisionText(currentDecision)) };
 		} catch (error) {
 			currentDecision = undefined;
@@ -313,7 +305,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 					durationMs: Date.now() - startedAt,
 				} satisfies DecisionAudit);
 			}
-			ctx.ui.setStatus("nimble", `Decision API unavailable: ${reason}`);
+			ctx.ui.setStatus("decision-api", `Decision API unavailable: ${reason}`);
 			const fallback =
 				"System One could not classify this step. Do not use tools or change files until the decision API is available; tell the user to start the configured decision service.";
 			if (required) return { messages: addRoutingMessage(event.messages, fallback) };

@@ -81,12 +81,6 @@ Use either command alias:
 /decision-api disable
 /decision-api stats
 
-/nimble enable
-/nimble disable
-/nimble stats
-```
-
-`enable` and `disable` persist the state in the current agent session. When disabled, no decision-model request is made and tool gating is bypassed. `/nimble-stats` remains available as a compatibility alias for `/decision-api stats`.
 
 ## Audit log
 
@@ -98,10 +92,10 @@ Auditing is enabled by default. Each successful decision records:
 - Nimble's route, confidence, and probabilities
 - request duration
 
-Failed decision-model requests are recorded separately with the error. Records are stored as agent-session custom entries and do not enter the LLM context. Use `/nimble-stats` inside Pi or OMP:
+Failed decision-model requests are recorded separately with the error. Records are stored as agent-session custom entries and do not enter the LLM context. Use `/decision-api stats` inside Pi or OMP:
 
 ```text
-/nimble-stats
+/decision-api stats
 ```
 
 It shows the number of successful decisions, failures, and the ten most recent questions, inputs, and answers for the current session. Set `NIMBLE_AUDIT=0` to disable recording.
