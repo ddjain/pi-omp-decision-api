@@ -1,0 +1,41 @@
+# Python and local environments
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node/Bun dependencies and build output
+node_modules/
+.bun/
+dist/
+build/
+coverage/
+
+# Environment files and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*credentials*
+*secrets*
+*token*
+
+# Agent runtime state: keep extension source, ignore local data
+.pi/sessions/
+.pi/logs/
+.pi/cache/
+.pi/settings.json
+.pi/auth.json
+.omp/sessions/
+.omp/logs/
+.omp/cache/
+.omp/agent.db
+.omp/config.yml
+.omp/settings.json
+
+# Local editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
