@@ -222,6 +222,20 @@ export default function decisionApi(pi: ExtensionAPI) {
 		].join("\n");
 		ctx.ui.notify(summary, failed ? "warning" : "info");
 	};
+	const showHelp = async (_args: string, ctx: ExtensionCommandContext) => {
+		ctx.ui.notify(
+			[
+				"Decision API: local Ollama setup",
+				"1. Start Ollama if needed: ollama serve",
+				"2. Download the model: ollama pull nimble",
+				"3. export TYPESAFE_BASE_URL=http://localhost:11434",
+				"4. export TYPESAFE_API_KEY=ollama; export TYPESAFE_DEFAULT_MODEL=nimble",
+				"5. Restart Pi/OMP, then /decision-api enable or /decision-api stats",
+			].join("\n"),
+			"info",
+		);
+	};
+
 
 	const setEnabled = (value: boolean, ctx: ExtensionCommandContext) => {
 		enabled = value;
@@ -245,7 +259,11 @@ export default function decisionApi(pi: ExtensionAPI) {
 			await showStats(action, ctx);
 			return;
 		}
-		ctx.ui.notify("Usage: /decision-api enable|disable|stats", "warning");
+		if (action === "help") {
+			await showHelp(action, ctx);
+			return;
+		}
+		ctx.ui.notify("Usage: /decision-api enable|disable|stats|help", "warning");
 	};
 
 	pi.registerCommand("decision-api", {

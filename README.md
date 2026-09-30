@@ -125,7 +125,17 @@ Both agents expose the same commands:
 /decision-api enable
 /decision-api disable
 /decision-api stats
+/decision-api help
 ```
+
+### Setup help
+
+```text
+/decision-api help
+```
+
+Displays the short local Ollama setup and required `TYPESAFE_*` exports.
+
 
 ### Enable and disable
 

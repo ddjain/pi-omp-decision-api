@@ -74,13 +74,14 @@ Legacy `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, `NIMBLE_TIMEOUT_MS`, and 
 
 ## Commands
 
-Use either command alias:
-
 ```text
 /decision-api enable
 /decision-api disable
 /decision-api stats
+/decision-api help
+```
 
+`/decision-api help` shows the short local Ollama setup and required `TYPESAFE_*` environment variables.
 
 ## Audit log
 
