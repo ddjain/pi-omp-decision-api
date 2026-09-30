@@ -190,7 +190,7 @@ The extension calls `${TYPESAFE_BASE_URL}/v1/systemone`. If the base URL already
 | `TYPESAFE_BASE_URL` | `http://localhost:11434` | System One service base URL |
 | `TYPESAFE_API_KEY` | unset | Optional Bearer token |
 | `TYPESAFE_DEFAULT_MODEL` | `nimble` | Decision model name |
-| `TYPESAFE_TIMEOUT_MS` | `10000` | Decision request timeout |
+| `TYPESAFE_TIMEOUT_MS` | `30000` | Decision request timeout |
 | `TYPESAFE_KEEP_ALIVE` | `5m` | Optional model keep-alive value |
 | `NIMBLE_ENABLED` | `1` | Initial enabled state |
 | `NIMBLE_REQUIRED` | `1` | Fail closed for tool calls when the decision service is unavailable |

@@ -141,7 +141,7 @@ function decisionApiConfig(): DecisionApiConfig {
 
 async function classify(state: unknown, signal: AbortSignal | undefined): Promise<DecisionResult> {
 	const config = decisionApiConfig();
-	const timeoutMs = envNumber("TYPESAFE_TIMEOUT_MS", envNumber("NIMBLE_TIMEOUT_MS", 10000));
+	const timeoutMs = envNumber("TYPESAFE_TIMEOUT_MS", envNumber("NIMBLE_TIMEOUT_MS", 30000));
 	const timeoutSignal = AbortSignal.timeout(timeoutMs);
 	const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 	const headers: Record<string, string> = { "content-type": "application/json" };
