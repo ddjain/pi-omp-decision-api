@@ -36,17 +36,21 @@ ollama pull nimble
 pi   # or: omp
 ```
 
-The extension calls the configured TypeSafe/Jev-compatible `POST /v1/systemone` endpoint before **every Pi or OMP LLM call**, including calls after a tool result. It asks the configured decision model to choose one next-step route:
+The extension calls the configured TypeSafe/Jev-compatible `POST /v1/systemone` endpoint before meaningful Pi or OMP LLM context changes, including calls after a tool result. It sends a compact state and evaluates these typed questions together:
 
-- `clarify` — ask a focused question
-- `inspect` — use read-only project tools
-- `change` — inspect, then edit or write
-- `run` — run a command, test, or build
-- `explain` — answer without project tools
+- `route` — `clarify`, `inspect`, `change`, `run`, `explain`, or `unknown`
+- `risk` — score from informational-only to destructive/remote/infrastructure action
+- `sufficient_context` — whether the state contains enough information to act safely
+- `needs_confirmation` — whether explicit user confirmation is required
+- `tool_class` — no tool, read-only, write, execution, or remote
 
-The selected route is added to the current context as routing metadata. By default, `edit`, `write`, `bash`, and `powershell` are blocked when the current route does not permit them. After a tool result, Pi or OMP calls the decision model again, so a request can move from `inspect` to `change` or `run`.
+The policy engine combines those answers with confidence and probability margin. Low-confidence changes/runs are downgraded to inspection. Unknown, insufficient-context, confirmation-required, and high-risk decisions block project tools. Unchanged compact states are served from an in-memory cache.
 
-The decision model is a typed classifier, not a planner or a replacement for the main coding model. Its decision is a routing signal; the main model still performs the work.
+The decision model is a typed classifier, not a planner or a replacement for the main coding model. Its result is a routing signal; deterministic policy code remains the final authority for tool permissions, and the main model still performs the work.
+
+## Current phase
+
+This phase implements compact state, batched typed questions, in-memory caching, confidence/margin safeguards, deterministic tool policy, and expanded session statistics. Stronger-model escalation, a dedicated confirmation UI, and a persistent cross-session cache are intentionally not enabled yet; those are the next phase.
 
 ## Configuration
 
@@ -65,9 +69,14 @@ export TYPESAFE_DEFAULT_MODEL=nimble
 | `TYPESAFE_DEFAULT_MODEL` | `nimble` | Decision model name |
 | `TYPESAFE_TIMEOUT_MS` | `30000` | Decision request timeout |
 | `TYPESAFE_KEEP_ALIVE` | `5m` | Optional model keep-alive value |
+| `TYPESAFE_DECISION_CACHE` | `1` | Reuse unchanged decisions within the session |
+| `TYPESAFE_DECISION_CACHE_TTL_MS` | `60000` | Decision cache lifetime |
+| `TYPESAFE_DECISION_CACHE_MAX_ENTRIES` | `100` | Maximum in-memory cached decisions |
+| `TYPESAFE_MAX_CONTEXT_CHARS` | `20000` | Maximum compact decision context size |
+| `TYPESAFE_MIN_CONFIDENCE` | `0.55` | Minimum route confidence for change/run decisions |
 | `NIMBLE_ENABLED` | `1` | Initial enabled state |
 | `NIMBLE_REQUIRED` | `1` | On failure, do not allow tool calls without a decision |
-| `NIMBLE_GATE_TOOLS` | `1` | Enforce route permissions for tool calls |
+| `NIMBLE_GATE_TOOLS` | `1` | Enforce route and risk permissions for tool calls |
 | `NIMBLE_AUDIT` | `1` | Persist decision and failure audit records |
 
 Legacy `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, `NIMBLE_TIMEOUT_MS`, and `NIMBLE_KEEP_ALIVE` variables remain supported as fallbacks. `TYPESAFE_*` values take precedence.
@@ -88,10 +97,10 @@ Legacy `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, `NIMBLE_TIMEOUT_MS`, and 
 Auditing is enabled by default. Each successful decision records:
 
 - timestamp and model
-- the exact typed question and criteria sent to Nimble
-- the truncated conversation state sent as input
-- Nimble's route, confidence, and probabilities
-- request duration
+- compact decision state
+- route, risk, confidence, probabilities, and policy
+- cache-hit status and request duration
+- tool class, context sufficiency, and confirmation result
 
 Failed decision-model requests are recorded separately with the error. Records are stored as agent-session custom entries and do not enter the LLM context. Use `/decision-api stats` inside Pi or OMP:
 
@@ -99,7 +108,7 @@ Failed decision-model requests are recorded separately with the error. Records a
 /decision-api stats
 ```
 
-It shows the number of successful decisions, failures, and the ten most recent questions, inputs, and answers for the current session. Set `NIMBLE_AUDIT=0` to disable recording.
+It shows decisions, failures, cache hits, average and p95 latency, route counts, and the ten most recent redacted inputs and outcomes for the current session. Set `NIMBLE_AUDIT=0` to disable recording.
 
 For a long-running session where memory is available:
 
@@ -122,17 +131,26 @@ curl http://localhost:11434/v1/systemone \
   -H 'Content-Type: application/json' \
   -d '{
     "model": "nimble",
-    "state": "Please inspect the repository and identify the relevant configuration file.",
+    "state": {
+      "request": "Please inspect the repository and identify the relevant configuration file.",
+      "context": "The user asked for a read-only inspection."
+    },
     "questions": {
-      "next_step": {
+      "route": {
         "type": "choice",
-        "instructions": "What should the coding agent do next?",
+        "instructions": "What should happen next?",
         "criteria": {
           "inspect": "Inspect files read-only",
           "change": "Edit or write files",
           "run": "Run a command or test",
-          "explain": "Answer without tools"
+          "explain": "Answer without tools",
+          "clarify": "Ask a focused question",
+          "unknown": "Insufficient context"
         }
+      },
+      "sufficient_context": {
+        "type": "noul",
+        "instructions": "Is there enough information to choose a safe next step?"
       }
     }
   }'

@@ -2,7 +2,7 @@
 
 Nimble-powered preflight routing for [Pi](https://pi.dev/) and [OMP](https://github.com/oh-my-pi/oh-my-pi) coding agents.
 
-Before each LLM context request, the extension calls Ollama's local System One API. Nimble classifies the next action, then the extension adds that route to the agent context and optionally gates tool calls.
+Before meaningful LLM context changes, the extension sends a compact state to Ollama's local System One API. One Nimble request evaluates the route, risk, context sufficiency, confirmation requirement, and tool class. Deterministic policy code then adds routing metadata and gates tool calls.
 
 ## Routes
 
@@ -13,6 +13,7 @@ Nimble chooses one route:
 - `change` — inspect, then edit or write
 - `run` — run a command, test, or build
 - `explain` — answer without project tools
+- `unknown` — insufficient context; do not guess
 
 Nimble is a classifier, not the primary coding model or a planner. The active Pi/OMP model still performs the work.
 
@@ -37,17 +38,34 @@ curl http://localhost:11434/v1/systemone \
   -H 'Content-Type: application/json' \
   -d '{
     "model": "nimble",
-    "state": "Please inspect the repository and identify the relevant configuration file.",
+    "state": {
+      "request": "Please inspect the repository and identify the relevant configuration file.",
+      "context": "The user asked for a read-only inspection.",
+      "lastTool": null
+    },
     "questions": {
-      "next_step": {
+      "route": {
         "type": "choice",
-        "instructions": "What should the coding agent do next?",
+        "instructions": "What should happen next?",
         "criteria": {
           "inspect": "Inspect files read-only",
           "change": "Edit or write files",
           "run": "Run a command or test",
-          "explain": "Answer without tools"
+          "explain": "Answer without tools",
+          "clarify": "Ask a focused question",
+          "unknown": "Insufficient context"
         }
+      },
+      "risk": {
+        "type": "score",
+        "instructions": "How risky is the next action?",
+        "criteria": [
+          "Informational only",
+          "Read-only inspection",
+          "Local reversible change",
+          "Command or broad modification",
+          "Destructive, remote, credential, or infrastructure action"
+        ]
       }
     }
   }'
@@ -164,7 +182,7 @@ NIMBLE_ENABLED=0 omp
 /decision-api stats
 ```
 
-Shows the current enabled state, successful decisions, failures, and the ten most recent questions, inputs, and answers.
+Shows decisions, failures, cache hits, average and p95 latency, route counts, and the ten most recent redacted inputs and outcomes.
 
 Audit entries are stored as agent-session custom entries and are not sent back to the LLM context. Disable auditing with:
 
@@ -192,9 +210,14 @@ The extension calls `${TYPESAFE_BASE_URL}/v1/systemone`. If the base URL already
 | `TYPESAFE_DEFAULT_MODEL` | `nimble` | Decision model name |
 | `TYPESAFE_TIMEOUT_MS` | `30000` | Decision request timeout |
 | `TYPESAFE_KEEP_ALIVE` | `5m` | Optional model keep-alive value |
+| `TYPESAFE_DECISION_CACHE` | `1` | Reuse unchanged decisions within the session |
+| `TYPESAFE_DECISION_CACHE_TTL_MS` | `60000` | Decision cache lifetime |
+| `TYPESAFE_DECISION_CACHE_MAX_ENTRIES` | `100` | Maximum in-memory cached decisions |
+| `TYPESAFE_MAX_CONTEXT_CHARS` | `20000` | Maximum compact decision context size |
+| `TYPESAFE_MIN_CONFIDENCE` | `0.55` | Minimum route confidence for change/run decisions |
 | `NIMBLE_ENABLED` | `1` | Initial enabled state |
 | `NIMBLE_REQUIRED` | `1` | Fail closed for tool calls when the decision service is unavailable |
-| `NIMBLE_GATE_TOOLS` | `1` | Enforce route permissions for tool calls |
+| `NIMBLE_GATE_TOOLS` | `1` | Enforce route and risk permissions for tool calls |
 | `NIMBLE_AUDIT` | `1` | Persist decision and failure audit records |
 
 The old `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, `NIMBLE_TIMEOUT_MS`, and `NIMBLE_KEEP_ALIVE` variables remain supported as fallbacks. `TYPESAFE_*` values take precedence.
@@ -213,16 +236,19 @@ NIMBLE_GATE_TOOLS=0 pi
 NIMBLE_GATE_TOOLS=0 omp
 ```
 
-## Tool policy
+## Decision policy
+
+The extension sends a compact state containing the current request, recent context, and latest tool result. One Nimble request evaluates route, risk, context sufficiency, confirmation, and tool class together.
 
 With tool gating enabled:
 
-- `inspect` allows read-only tools such as `read`, `grep`, `find`, and `ls`.
-- `change` allows edits and writes but blocks command execution until a later route.
-- `run` allows command execution but blocks `edit` and `write`.
-- `clarify` and `explain` block project tools.
+- `inspect` or `inspect_only` allows read-only tools such as `read`, `grep`, `find`, and `ls`.
+- `change` allows edits and writes only when risk and confidence permit it.
+- `run` allows command execution only when policy permits it.
+- `clarify`, `explain`, `unknown`, insufficient context, confirmation-required, and high-risk decisions block project tools.
+- Unchanged decision states use the in-memory cache until its TTL expires.
 
-After every tool result, the extension calls Nimble again, so the route can change during one request.
+After every meaningful context change, the extension calls Nimble again, so the route can change during one request.
 
 ## Privacy and safety
 
