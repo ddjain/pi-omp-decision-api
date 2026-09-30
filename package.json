@@ -1,0 +1,41 @@
+{
+  "name": "@ddjain/pi-omp-decision-api",
+  "version": "0.1.0",
+  "description": "TypeSafe-compatible decision API preflight routing for Pi and OMP coding agents",
+  "type": "module",
+  "private": false,
+  "files": [
+    ".pi",
+    ".omp",
+    "README.md",
+    "NIMBLE_PI.md",
+    "LICENSE"
+  ],
+  "omp": {
+    "extensions": ["./.omp/extensions/nimble-decision.ts"]
+  },
+  "pi": {
+    "extensions": ["./.pi/extensions/nimble-decision.ts"]
+  },
+  "keywords": [
+    "pi",
+    "omp",
+    "ollama",
+    "nimble",
+    "decision-model",
+    "coding-agent",
+    "agent-extension"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/ddjain/pi-omp-decision-api-.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ddjain/pi-omp-decision-api-/issues"
+  },
+  "homepage": "https://github.com/ddjain/pi-omp-decision-api-",
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

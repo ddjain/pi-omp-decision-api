@@ -53,6 +53,32 @@ curl http://localhost:11434/v1/systemone \
   }'
 ```
 
+## Install as a Pi/OMP package
+
+After publishing the package to npm, install it through the native agent package managers:
+
+```bash
+pi install npm:@ddjain/pi-omp-decision-api
+omp install npm:@ddjain/pi-omp-decision-api
+```
+
+These commands use npm package resolution and register the extension for the corresponding agent. The package manifest declares both Pi and OMP entrypoints, so no manual file copying is required.
+
+If Pi or OMP is not installed globally, run the agent CLI through your existing `npx` workflow, then use the same install subcommand. The extension itself has no runtime npm dependencies.
+
+To publish a new version:
+
+```bash
+npm login
+npm publish --access public
+```
+
+The package name is:
+
+```text
+@ddjain/pi-omp-decision-api
+```
+
 ## Install in a project
 
 Clone this repository, then copy or symlink the extension directories into the project where the agent runs.
