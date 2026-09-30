@@ -97,7 +97,7 @@ function addRoutingMessage(messages: AgentMessage[], text: string): AgentMessage
 	const userIndex = messages.findLastIndex((message) => message.role === "user");
 	if (userIndex < 0) return messages;
 
-	const routingText = `\n\n[System One routing signal — local Nimble classifier]\n${text}\nTreat this as routing metadata. Follow the selected next step unless the current tool result makes it impossible; after each tool result, re-evaluate the next step.`;
+	const routingText = `\n\n[System One routing signal — local decision model]\n${text}\nTreat this as routing metadata. Follow the selected next step unless the current tool result makes it impossible; after each tool result, re-evaluate the next step.`;
 	return messages.map((message, index) => {
 		if (index !== userIndex) return message;
 		if (typeof message.content === "string") {
@@ -120,34 +120,55 @@ function numericProbabilities(value: unknown): Record<string, number> | undefine
 	return result;
 }
 
-async function classify(state: unknown, signal: AbortSignal | undefined): Promise<NimbleDecision> {
-	const endpoint = process.env.NIMBLE_URL ?? "http://localhost:11434/v1/systemone";
-	const model = process.env.NIMBLE_MODEL ?? "nimble";
-	const timeoutSignal = AbortSignal.timeout(envNumber("NIMBLE_TIMEOUT_MS", 10000));
-	const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+type DecisionApiConfig = {
+	endpoint: string;
+	model: string;
+	apiKey?: string;
+};
 
-	const response = await fetch(endpoint, {
+function decisionApiConfig(): DecisionApiConfig {
+	const baseUrl = process.env.TYPESAFE_BASE_URL ?? process.env.NIMBLE_URL ?? "http://localhost:11434";
+	const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+	const endpoint = normalizedBaseUrl.endsWith("/v1/systemone")
+		? normalizedBaseUrl
+		: `${normalizedBaseUrl}${normalizedBaseUrl.endsWith("/v1") ? "/systemone" : "/v1/systemone"}`;
+	return {
+		endpoint,
+		model: process.env.TYPESAFE_DEFAULT_MODEL ?? process.env.NIMBLE_MODEL ?? "nimble",
+		apiKey: process.env.TYPESAFE_API_KEY ?? process.env.NIMBLE_API_KEY,
+	};
+}
+
+async function classify(state: unknown, signal: AbortSignal | undefined): Promise<NimbleDecision> {
+	const config = decisionApiConfig();
+	const timeoutMs = envNumber("TYPESAFE_TIMEOUT_MS", envNumber("NIMBLE_TIMEOUT_MS", 10000));
+	const timeoutSignal = AbortSignal.timeout(timeoutMs);
+	const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+	const headers: Record<string, string> = { "content-type": "application/json" };
+	if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
+
+	const response = await fetch(config.endpoint, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers,
 		signal: requestSignal,
 		body: JSON.stringify({
-			model,
+			model: config.model,
 			state,
-			keep_alive: process.env.NIMBLE_KEEP_ALIVE ?? "5m",
+			keep_alive: process.env.TYPESAFE_KEEP_ALIVE ?? process.env.NIMBLE_KEEP_ALIVE ?? "5m",
 			questions: { next_step: QUESTION },
 		}),
 	});
 
 	if (!response.ok) {
 		const detail = (await response.text()).slice(0, 300);
-		throw new Error(`Ollama System One returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+		throw new Error(`System One returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
 	}
 
 	const payload: unknown = await response.json();
 	const answers = isRecord(payload) ? payload.answers : undefined;
 	const answer = isRecord(answers) ? answers.next_step : undefined;
 	const route = isRecord(answer) ? answer.choice : undefined;
-	if (!isRoute(route)) throw new Error("Ollama System One returned an invalid next_step choice");
+	if (!isRoute(route)) throw new Error("System One returned an invalid next_step choice");
 
 	const confidence = isRecord(answer) && typeof answer.confidence === "number" ? answer.confidence : undefined;
 	const probabilities = isRecord(answer) ? numericProbabilities(answer.probabilities) : undefined;
@@ -181,7 +202,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 	const required = envBool("NIMBLE_REQUIRED", true);
 	const gateTools = envBool("NIMBLE_GATE_TOOLS", true);
 	const auditEnabled = envBool("NIMBLE_AUDIT", true);
-	const model = process.env.NIMBLE_MODEL ?? "nimble";
+	const decisionModel = decisionApiConfig().model;
 	let enabled = envBool("NIMBLE_ENABLED", true);
 	let currentDecision: NimbleDecision | undefined;
 
@@ -194,9 +215,9 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 		const recent = records.slice(-10).map((entry) => auditLine(entry.data));
 		const summary = [
 			`Decision API: ${enabled ? "enabled" : "disabled"}`,
-			`Nimble decisions: ${successful.length}`,
-			`Nimble failures: ${failed}`,
-			recent.length ? "Recent:" : "No Nimble audit records in this session.",
+			`Decision API decisions: ${successful.length}`,
+			`Decision API failures: ${failed}`,
+			recent.length ? "Recent decision records:" : "No decision audit records in this session.",
 			...recent,
 		].join("\n");
 		ctx.ui.notify(summary, failed ? "warning" : "info");
@@ -228,7 +249,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 	};
 
 	pi.registerCommand("decision-api", {
-		description: "Enable, disable, or inspect the Nimble decision API",
+		description: "Enable, disable, or inspect the decision API",
 		handler: handleDecisionCommand,
 	});
 	pi.registerCommand("nimble", {
@@ -236,7 +257,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 		handler: handleDecisionCommand,
 	});
 	pi.registerCommand("nimble-stats", {
-		description: "Show Nimble decision count and recent questions/answers",
+		description: "Show decision API count and recent questions/answers",
 		handler: showStats,
 	});
 
@@ -269,14 +290,14 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 				pi.appendEntry("nimble-decision", {
 					kind: "decision",
 					timestamp: new Date().toISOString(),
-					model,
+					model: decisionModel,
 					question: QUESTION,
 					state,
 					answer: currentDecision,
 					durationMs: Date.now() - startedAt,
 				} satisfies DecisionAudit);
 			}
-			ctx.ui.setStatus("nimble", `Nimble: ${decisionText(currentDecision)}`);
+			ctx.ui.setStatus("nimble", `Decision API: ${decisionModel} — ${decisionText(currentDecision)}`);
 			return { messages: addRoutingMessage(event.messages, decisionText(currentDecision)) };
 		} catch (error) {
 			currentDecision = undefined;
@@ -285,18 +306,18 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 				pi.appendEntry("nimble-decision", {
 					kind: "error",
 					timestamp: new Date().toISOString(),
-					model,
+					model: decisionModel,
 					question: QUESTION,
 					state,
 					error: reason,
 					durationMs: Date.now() - startedAt,
 				} satisfies DecisionAudit);
 			}
-			ctx.ui.setStatus("nimble", `Nimble unavailable: ${reason}`);
+			ctx.ui.setStatus("nimble", `Decision API unavailable: ${reason}`);
 			const fallback =
-				"Nimble could not classify this step. Do not use tools or change files until Nimble is available; tell the user to start Ollama and load the nimble model.";
+				"System One could not classify this step. Do not use tools or change files until the decision API is available; tell the user to start the configured decision service.";
 			if (required) return { messages: addRoutingMessage(event.messages, fallback) };
-			return { messages: addRoutingMessage(event.messages, `Nimble unavailable; proceed cautiously. ${fallback}`) };
+			return { messages: addRoutingMessage(event.messages, `Decision API unavailable; proceed cautiously. ${fallback}`) };
 		}
 	});
 
@@ -306,7 +327,7 @@ export default function nimbleDecision(pi: ExtensionAPI) {
 			if (!enabled) return;
 			if (!currentDecision) {
 				return required
-					? { block: true, reason: "Nimble has not approved a route for this tool call." }
+					? { block: true, reason: "The decision API has not approved a route for this tool call." }
 					: undefined;
 			}
 

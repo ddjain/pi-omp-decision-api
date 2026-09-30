@@ -121,13 +121,13 @@ Compatibility alias:
 /decision-api enable
 ```
 
-Enables Nimble calls and route-based tool gating.
+Enables decision-model calls and route-based tool gating.
 
 ```text
 /decision-api disable
 ```
 
-Disables Nimble calls and bypasses the extension's tool gate. The setting is persisted in the current agent session.
+Disables decision-model calls and bypasses the extension's tool gate. The setting is persisted in the current agent session.
 
 The initial state is enabled. Override it for a process with:
 
@@ -153,16 +153,29 @@ NIMBLE_AUDIT=0 omp
 
 ## Configuration
 
+The preferred variables use the TypeSafe/Jev-compatible naming:
+
+```bash
+export TYPESAFE_BASE_URL=http://localhost:11434
+export TYPESAFE_API_KEY=ollama
+export TYPESAFE_DEFAULT_MODEL=nimble
+```
+
+The extension calls `${TYPESAFE_BASE_URL}/v1/systemone`. If the base URL already ends in `/v1` or `/v1/systemone`, it does not duplicate the path. `TYPESAFE_API_KEY` is sent as a Bearer token.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `NIMBLE_URL` | `http://localhost:11434/v1/systemone` | Ollama System One endpoint |
-| `NIMBLE_MODEL` | `nimble` | Decision model name |
+| `TYPESAFE_BASE_URL` | `http://localhost:11434` | System One service base URL |
+| `TYPESAFE_API_KEY` | unset | Optional Bearer token |
+| `TYPESAFE_DEFAULT_MODEL` | `nimble` | Decision model name |
+| `TYPESAFE_TIMEOUT_MS` | `10000` | Decision request timeout |
+| `TYPESAFE_KEEP_ALIVE` | `5m` | Optional model keep-alive value |
 | `NIMBLE_ENABLED` | `1` | Initial enabled state |
-| `NIMBLE_REQUIRED` | `1` | Fail closed for tool calls when Nimble is unavailable |
+| `NIMBLE_REQUIRED` | `1` | Fail closed for tool calls when the decision service is unavailable |
 | `NIMBLE_GATE_TOOLS` | `1` | Enforce route permissions for tool calls |
 | `NIMBLE_AUDIT` | `1` | Persist decision and failure audit records |
-| `NIMBLE_TIMEOUT_MS` | `10000` | Nimble request timeout |
-| `NIMBLE_KEEP_ALIVE` | `5m` | Ollama model keep-alive duration |
+
+The old `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, `NIMBLE_TIMEOUT_MS`, and `NIMBLE_KEEP_ALIVE` variables remain supported as fallbacks. `TYPESAFE_*` values take precedence.
 
 For a long-running session with sufficient memory:
 

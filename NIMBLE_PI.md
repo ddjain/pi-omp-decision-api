@@ -36,7 +36,7 @@ ollama pull nimble
 pi   # or: omp
 ```
 
-The extension calls Ollama's `POST /v1/systemone` endpoint before **every Pi or OMP LLM call**, including calls after a tool result. It asks Nimble to choose one next-step route:
+The extension calls the configured TypeSafe/Jev-compatible `POST /v1/systemone` endpoint before **every Pi or OMP LLM call**, including calls after a tool result. It asks the configured decision model to choose one next-step route:
 
 - `clarify` — ask a focused question
 - `inspect` — use read-only project tools
@@ -44,23 +44,33 @@ The extension calls Ollama's `POST /v1/systemone` endpoint before **every Pi or 
 - `run` — run a command, test, or build
 - `explain` — answer without project tools
 
-The selected route is added to the current context as routing metadata. By default, `edit`, `write`, `bash`, and `powershell` are blocked when the current route does not permit them. After a tool result, Pi or OMP calls Nimble again, so a request can move from `inspect` to `change` or `run`.
+The selected route is added to the current context as routing metadata. By default, `edit`, `write`, `bash`, and `powershell` are blocked when the current route does not permit them. After a tool result, Pi or OMP calls the decision model again, so a request can move from `inspect` to `change` or `run`.
 
-Nimble is a typed classifier, not a planner or a replacement for the main coding model. Its decision is a routing signal; the main model still performs the work.
+The decision model is a typed classifier, not a planner or a replacement for the main coding model. Its decision is a routing signal; the main model still performs the work.
 
 ## Configuration
 
-Environment variables are optional:
+Environment variables are optional. The preferred TypeSafe/Jev-compatible configuration is:
+
+```bash
+export TYPESAFE_BASE_URL=http://localhost:11434
+export TYPESAFE_API_KEY=ollama
+export TYPESAFE_DEFAULT_MODEL=nimble
+```
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `NIMBLE_URL` | `http://localhost:11434/v1/systemone` | Ollama System One endpoint |
-| `NIMBLE_MODEL` | `nimble` | Local System One model name |
-| `NIMBLE_TIMEOUT_MS` | `10000` | Decision request timeout |
-| `NIMBLE_KEEP_ALIVE` | `5m` | How long Ollama keeps Nimble loaded |
+| `TYPESAFE_BASE_URL` | `http://localhost:11434` | System One service base URL |
+| `TYPESAFE_API_KEY` | unset | Optional Bearer token |
+| `TYPESAFE_DEFAULT_MODEL` | `nimble` | Decision model name |
+| `TYPESAFE_TIMEOUT_MS` | `10000` | Decision request timeout |
+| `TYPESAFE_KEEP_ALIVE` | `5m` | Optional model keep-alive value |
+| `NIMBLE_ENABLED` | `1` | Initial enabled state |
 | `NIMBLE_REQUIRED` | `1` | On failure, do not allow tool calls without a decision |
 | `NIMBLE_GATE_TOOLS` | `1` | Enforce route permissions for tool calls |
-| `NIMBLE_ENABLED` | `1` | Initial enabled state; command changes persist for the session |
+| `NIMBLE_AUDIT` | `1` | Persist decision and failure audit records |
+
+Legacy `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, `NIMBLE_TIMEOUT_MS`, and `NIMBLE_KEEP_ALIVE` variables remain supported as fallbacks. `TYPESAFE_*` values take precedence.
 
 ## Commands
 
