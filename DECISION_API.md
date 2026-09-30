@@ -1,28 +1,28 @@
 # Decision API routing for Pi and OMP
 
-This project includes a shared decision API implementation:
+This project includes a shared, pure-advisory decision API implementation:
 
 - `.pi/extensions/decision-api.ts` for Pi
 - `.omp/extensions/decision-api.ts` for OMP, which reuses the Pi implementation
 
-Both agents share the same routing behavior, tool gate, audit records, and environment variables.
+Both agents share the same routing behavior, audit records, and environment variables. The extension never inspects, gates, delays, or blocks a tool call — it only appends a suggested route/risk note to context. See the "Install from this git repo" section in `README.md` for global vs. project-level install, and its "Verify the install" steps for catching duplicate loads.
 
 ## Pi
 
-Pi auto-loads `.pi/extensions/decision-api.ts` when started in this project.
+Pi auto-loads `.pi/extensions/decision-api.ts` when started in a project that has it.
 
 ## OMP
 
-OMP auto-loads `.omp/extensions/decision-api.ts` when started in this project.
+OMP auto-loads `.omp/extensions/decision-api.ts` when started in a project that has it.
 
 ```bash
 omp
 ```
 
-To load it explicitly:
+To load it explicitly without installing into the project:
 
 ```bash
-omp --extension ./.omp/extensions/decision-api.ts
+omp -e ./.omp/extensions/decision-api.ts
 ```
 
 The OMP entrypoint is intentionally a small re-export. Keep behavior changes in `.pi/extensions/decision-api.ts` so both agents remain identical.
@@ -36,21 +36,20 @@ ollama pull nimble
 pi   # or: omp
 ```
 
-The extension calls the configured TypeSafe/Jev-compatible `POST /v1/systemone` endpoint before meaningful Pi or OMP LLM context changes, including calls after a tool result. It sends a compact state and evaluates these typed questions together:
+The extension calls the configured TypeSafe/Jev-compatible `POST /v1/systemone` endpoint before meaningful Pi or OMP LLM context changes. It sends the current user request, the last ~8 messages of compacted context, and the last tool result (name + truncated output), and evaluates three typed questions:
 
 - `route` — `clarify`, `inspect`, `change`, `run`, `explain`, or `unknown`
-- `risk` — score from informational-only to destructive/remote/infrastructure action
-- `sufficient_context` — whether the state contains enough information to act safely
-- `needs_confirmation` — whether explicit user confirmation is required
-- `tool_class` — no tool, read-only, write, execution, or remote
+- `risk` — score from informational-only (0) to destructive/remote/infrastructure action (4)
+- `reason` — a short tag explaining elevated risk (e.g. touches remote/infra, broad scope, ambiguous request, risky recent tool result), or `none`
 
-The policy engine combines those answers with confidence and probability margin. Low-confidence changes/runs are downgraded to inspection. Unknown, insufficient-context, confirmation-required, and high-risk decisions block project tools. Unchanged compact states are served from an in-memory cache.
+The result is appended to context as a `[System One routing signal — local decision model, advisory only]` note, but **only when it's actionable**: risk 3+, or route `clarify`/`unknown`. Lower-risk decisions are still recorded to the audit log but never enter the transcript — this avoids training the main model to skim past a boilerplate note on every turn. That's the entire effect — there is no policy engine, no tool-class classification, no confirmation requirement, and no tool gating. The decision model is a suggestion for the main coding model to weigh; it cannot stop, delay, or permit a tool call.
 
-The decision model is a typed classifier, not a planner or a replacement for the main coding model. Its result is a routing signal; deterministic policy code remains the final authority for tool permissions, and the main model still performs the work.
+Two efficiency mechanisms sit on top of this:
 
-## Current phase
+- **Cache**: identical requests (same request text + same last tool name) within a 15-second window reuse the previous decision instead of calling Ollama again.
+- **Backoff**: after 3 consecutive classification failures, the extension stops calling Nimble for ~60 seconds before retrying, instead of paying the full `TYPESAFE_TIMEOUT_MS` on every turn while Ollama is down.
 
-This phase implements compact state, batched typed questions, in-memory caching, confidence/margin safeguards, deterministic tool policy, and expanded session statistics. Stronger-model escalation, a dedicated confirmation UI, and a persistent cross-session cache are intentionally not enabled yet; those are the next phase.
+If the request to Nimble fails or times out, the extension logs the failure (if auditing is enabled) and silently skips the advisory note for that turn — nothing fails closed, nothing blocks.
 
 ## Configuration
 
@@ -68,18 +67,10 @@ export TYPESAFE_DEFAULT_MODEL=nimble
 | `TYPESAFE_API_KEY` | unset | Optional Bearer token |
 | `TYPESAFE_DEFAULT_MODEL` | `nimble` | Decision model name |
 | `TYPESAFE_TIMEOUT_MS` | `30000` | Decision request timeout |
-| `TYPESAFE_KEEP_ALIVE` | `5m` | Optional model keep-alive value |
-| `TYPESAFE_DECISION_CACHE` | `1` | Reuse unchanged decisions within the session |
-| `TYPESAFE_DECISION_CACHE_TTL_MS` | `60000` | Decision cache lifetime |
-| `TYPESAFE_DECISION_CACHE_MAX_ENTRIES` | `100` | Maximum in-memory cached decisions |
-| `TYPESAFE_MAX_CONTEXT_CHARS` | `20000` | Maximum compact decision context size |
-| `TYPESAFE_MIN_CONFIDENCE` | `0.55` | Minimum route confidence for change/run decisions |
 | `NIMBLE_ENABLED` | `1` | Initial enabled state |
-| `NIMBLE_REQUIRED` | `1` | On failure, do not allow tool calls without a decision |
-| `NIMBLE_GATE_TOOLS` | `1` | Enforce route and risk permissions for tool calls |
 | `NIMBLE_AUDIT` | `1` | Persist decision and failure audit records |
 
-Legacy `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, `NIMBLE_TIMEOUT_MS`, and `NIMBLE_KEEP_ALIVE` variables remain supported as fallbacks. `TYPESAFE_*` values take precedence.
+Legacy `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, and `NIMBLE_TIMEOUT_MS` variables remain supported as fallbacks. `TYPESAFE_*` values take precedence.
 
 ## Commands
 
@@ -90,39 +81,21 @@ Legacy `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, `NIMBLE_TIMEOUT_MS`, and 
 /decision-api help
 ```
 
-`/decision-api help` shows the short local Ollama setup and required `TYPESAFE_*` environment variables.
+`/decision-api help` shows the extension version/last-updated date, the short local Ollama setup, and required `TYPESAFE_*` environment variables. Check the version here first whenever behavior seems out of date — it's the fastest way to tell whether a running session picked up your latest edit or is loading a stale duplicate (see README's "Verify the install").
+
+`/decision-api disable` turns off decision-model calls entirely for the session (persisted via a session entry) — no request is sent and no advisory note is added until re-enabled.
 
 ## Audit log
 
 Auditing is enabled by default. Each successful decision records:
 
 - timestamp and model
-- compact decision state
-- route, risk, confidence, probabilities, and policy
-- cache-hit status and request duration
-- tool class, context sufficiency, and confirmation result
+- the (redacted) user request
+- route, risk, confidence, and reason (if any)
+- whether the note was actually injected into context
+- request duration and cache-hit status
 
-Failed decision-model requests are recorded separately with the error. Records are stored as agent-session custom entries and do not enter the LLM context. Use `/decision-api stats` inside Pi or OMP:
-
-```text
-/decision-api stats
-```
-
-It shows decisions, failures, cache hits, average and p95 latency, route counts, and the ten most recent redacted inputs and outcomes for the current session. Set `NIMBLE_AUDIT=0` to disable recording.
-
-For a long-running session where memory is available:
-
-```bash
-NIMBLE_KEEP_ALIVE=-1 pi   # or: omp
-```
-
-To use the classifier only as guidance and not block tool calls:
-
-```bash
-NIMBLE_GATE_TOOLS=0 pi   # or: omp
-```
-
-`NIMBLE_REQUIRED=1` cannot cancel a provider request because Pi/OMP context hooks can modify the prompt but do not expose a request-cancellation return value. It does fail closed for actual tool calls when Nimble is unavailable.
+Failed decision-model requests are recorded separately with the error. Records are stored as agent-session custom entries and do not enter the LLM context. Use `/decision-api stats` inside Pi or OMP to see enabled/disabled state, decision/failure/cache-hit counts, how many decisions were actually injected, a route breakdown, a risk histogram, and current backoff status for the current session. Set `NIMBLE_AUDIT=0` to disable recording.
 
 ## Direct smoke check
 
@@ -132,8 +105,7 @@ curl http://localhost:11434/v1/systemone \
   -d '{
     "model": "nimble",
     "state": {
-      "request": "Please inspect the repository and identify the relevant configuration file.",
-      "context": "The user asked for a read-only inspection."
+      "request": "Please inspect the repository and identify the relevant configuration file."
     },
     "questions": {
       "route": {
@@ -148,9 +120,27 @@ curl http://localhost:11434/v1/systemone \
           "unknown": "Insufficient context"
         }
       },
-      "sufficient_context": {
-        "type": "noul",
-        "instructions": "Is there enough information to choose a safe next step?"
+      "risk": {
+        "type": "score",
+        "instructions": "How risky is the next action?",
+        "criteria": [
+          "Informational only",
+          "Read-only inspection",
+          "Local reversible change",
+          "Command or broad modification",
+          "Destructive, remote, credential, or infrastructure action"
+        ]
+      },
+      "reason": {
+        "type": "choice",
+        "instructions": "If risk is elevated, why? Choose none if there is no specific concern.",
+        "criteria": {
+          "remote_or_infra": "Touches a remote host, credentials, or infrastructure",
+          "broad_scope": "Affects a broad or unclear set of files",
+          "ambiguous_request": "The request is ambiguous or underspecified",
+          "risky_history": "A recent tool result suggests something already went wrong",
+          "none": "No specific concern"
+        }
       }
     }
   }'
