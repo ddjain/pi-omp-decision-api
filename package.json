@@ -28,12 +28,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/ddjain/pi-omp-decision-api-.git"
+    "url": "git+ssh://git@github.com/ddjain/pi-omp-decision-api.git"
   },
   "bugs": {
-    "url": "https://github.com/ddjain/pi-omp-decision-api-/issues"
+    "url": "https://github.com/ddjain/pi-omp-decision-api/issues"
   },
-  "homepage": "https://github.com/ddjain/pi-omp-decision-api-",
+  "homepage": "https://github.com/ddjain/pi-omp-decision-api",
   "engines": {
     "node": ">=22"
   },
