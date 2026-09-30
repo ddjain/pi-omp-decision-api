@@ -78,12 +78,15 @@ Legacy `NIMBLE_URL`, `NIMBLE_MODEL`, `NIMBLE_API_KEY`, and `NIMBLE_TIMEOUT_MS` v
 /decision-api enable
 /decision-api disable
 /decision-api stats
+/decision-api log [n]
 /decision-api help
 ```
 
 `/decision-api help` shows the extension version/last-updated date, the short local Ollama setup, and required `TYPESAFE_*` environment variables. Check the version here first whenever behavior seems out of date — it's the fastest way to tell whether a running session picked up your latest edit or is loading a stale duplicate (see README's "Verify the install").
 
 `/decision-api disable` turns off decision-model calls entirely for the session (persisted via a session entry) — no request is sent and no advisory note is added until re-enabled.
+
+`/decision-api log [n]` (default 3, max 10) prints the actual redacted request/context/last-tool-result sent for the last `n` calls, alongside the raw route/risk/confidence/reason received and whether it was injected into context. Use this instead of `stats` when you need to see exactly what a specific decision saw and answered, not just aggregate counts.
 
 ## Audit log
 

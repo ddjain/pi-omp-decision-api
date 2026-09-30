@@ -5,7 +5,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 // risky it looks, and surface that as a note in context when it's actually
 // actionable. It never blocks, gates, or delays a tool call — the active
 // model always decides for itself.
-const EXTENSION_VERSION = "0.5.0";
+const EXTENSION_VERSION = "0.6.0";
 const EXTENSION_LAST_UPDATED = "2026-09-30";
 
 type Route = "clarify" | "inspect" | "change" | "run" | "explain" | "unknown";
@@ -28,6 +28,8 @@ type DecisionAudit = {
 	timestamp: string;
 	model: string;
 	request: string;
+	context: string;
+	lastTool?: { name: string; result: string };
 	answer?: DecisionResult;
 	injected?: boolean;
 	error?: string;
@@ -91,6 +93,15 @@ const CACHE_MAX_ENTRIES = 20;
 // something ambiguous, or when risk crosses into "broad/destructive" territory.
 const NOTEWORTHY_RISK_THRESHOLD = 3;
 
+// Nimble's context window is ~8194 tokens for the whole prompt, including the
+// serialized question schema (typically several hundred tokens on its own).
+// Keep these conservative — dense text like code, logs, or file paths can run
+// well under 4 chars/token, so budgeting near the raw token ceiling in chars
+// still overflows on real tool output.
+const MAX_REQUEST_CHARS = 1_500;
+const MAX_CONTEXT_CHARS = 3_000;
+const MAX_LAST_TOOL_RESULT_CHARS = 800;
+
 function envBool(name: string, fallback: boolean): boolean {
 	const value = process.env[name];
 	if (value === undefined) return fallback;
@@ -130,7 +141,7 @@ function messageText(message: unknown): string {
 
 function compactDecisionState(messages: readonly unknown[]): DecisionInput {
 	const requestMessage = [...messages].reverse().find((m) => isRecord(m) && m.role === "user");
-	const request = truncate(messageText(requestMessage), 8_000);
+	const request = truncate(messageText(requestMessage), MAX_REQUEST_CHARS);
 	const recent = messages
 		.slice(-8)
 		.map((message) => {
@@ -148,10 +159,10 @@ function compactDecisionState(messages: readonly unknown[]): DecisionInput {
 	const lastTool = lastToolMessage && isRecord(lastToolMessage)
 		? {
 			name: typeof lastToolMessage.toolName === "string" ? lastToolMessage.toolName : "tool",
-			result: truncate(messageText(lastToolMessage), 2_000),
+			result: truncate(messageText(lastToolMessage), MAX_LAST_TOOL_RESULT_CHARS),
 		}
 		: undefined;
-	return { request, context: truncate(recent, 20_000), ...(lastTool ? { lastTool } : {}) };
+	return { request, context: truncate(recent, MAX_CONTEXT_CHARS), ...(lastTool ? { lastTool } : {}) };
 }
 
 function addRoutingMessage(messages: AgentMessage[], text: string): AgentMessage[] {
@@ -171,6 +182,14 @@ function redactText(value: string): string {
 		.replace(/(authorization\s*[:=]\s*bearer\s+)[^\s]+/gi, "$1[redacted]")
 		.replace(/((?:api[_-]?key|token|secret|password|passwd|private[_-]?key)\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
 		.replace(/(-----BEGIN [^-]+-----)[\s\S]*?(-----END [^-]+-----)/g, "$1[redacted]$2");
+}
+
+function redactState(state: DecisionInput): { request: string; context: string; lastTool?: { name: string; result: string } } {
+	return {
+		request: redactText(state.request),
+		context: redactText(state.context),
+		...(state.lastTool ? { lastTool: { name: state.lastTool.name, result: redactText(state.lastTool.result) } } : {}),
+	};
 }
 
 type DecisionApiConfig = { endpoint: string; model: string; apiKey?: string };
@@ -221,10 +240,22 @@ async function classify(state: DecisionInput, signal: AbortSignal | undefined): 
 	};
 }
 
+// Full-length text for the note injected into context, where wrapping is fine.
 function decisionText(decision: DecisionResult): string {
 	const confidence = decision.confidence === undefined ? "" : ` (${decision.confidence.toFixed(2)} confidence)`;
 	const reason = decision.reason ? ` Why: ${decision.reason}` : "";
 	return `Suggested next step: ${decision.route}${confidence}; risk ${decision.risk.toFixed(1)}/4. ${ROUTES[decision.route]}${reason} This is advisory only — use your own judgment.`;
+}
+
+// One-line text for the status bar, which truncates with "…" past a small
+// character budget. Keep this short enough to always fit: route, risk, and a
+// terse reason if there is one — no restated route description, confidence,
+// or disclaimer (those only matter in the full injected note, if any).
+const STATUS_TEXT_MAX_CHARS = 70;
+function statusText(decision: DecisionResult): string {
+	const reason = decision.reason ? ` — ${decision.reason}` : "";
+	const text = `${decision.route}, risk ${decision.risk.toFixed(1)}/4${reason}`;
+	return text.length <= STATUS_TEXT_MAX_CHARS ? text : `${text.slice(0, STATUS_TEXT_MAX_CHARS - 1)}…`;
 }
 
 function isNoteworthy(decision: DecisionResult): boolean {
@@ -254,6 +285,7 @@ export default function decisionApi(pi: ExtensionAPI) {
 				"4. export TYPESAFE_API_KEY=ollama; export TYPESAFE_DEFAULT_MODEL=nimble",
 				"5. Restart Pi/OMP, then /decision-api enable or /decision-api stats",
 				"Notes only appear in context when risk is high or the route is clarify/unknown.",
+				"Use /decision-api log [n] to see the actual (redacted) request/context sent and the raw decision received.",
 			].join("\n"),
 			"info",
 		);
@@ -294,6 +326,53 @@ export default function decisionApi(pi: ExtensionAPI) {
 		);
 	};
 
+	const DEFAULT_LOG_ENTRIES = 3;
+	const MAX_LOG_ENTRIES = 10;
+	const LOG_FIELD_MAX_CHARS = 400;
+
+	const showLog = async (args: string, ctx: ExtensionCommandContext) => {
+		const requested = Number.parseInt(args.trim(), 10);
+		const count = Number.isFinite(requested) && requested > 0
+			? Math.min(requested, MAX_LOG_ENTRIES)
+			: DEFAULT_LOG_ENTRIES;
+
+		const records = ctx.sessionManager.getEntries().filter(
+			(entry) => entry.type === "custom" && entry.customType === "decision-api",
+		);
+		const data = records.map((entry) => entry.data).filter(isRecord).slice(-count);
+		if (data.length === 0) {
+			ctx.ui.notify("No decision-api audit entries in this session yet.", "info");
+			return;
+		}
+
+		const clip = (value: string) => truncate(value, LOG_FIELD_MAX_CHARS);
+		const blocks = data.map((entry, index) => {
+			const timestamp = typeof entry.timestamp === "string" ? entry.timestamp : "unknown time";
+			const request = typeof entry.request === "string" ? entry.request : "";
+			const context = typeof entry.context === "string" ? entry.context : "";
+			const lastTool = isRecord(entry.lastTool) ? entry.lastTool : undefined;
+			const lines = [
+				`#${index + 1} ${timestamp} (${entry.kind === "error" ? "error" : "decision"})`,
+				`  sent request: ${clip(request) || "(empty)"}`,
+				`  sent context: ${clip(context) || "(none)"}`,
+			];
+			if (lastTool) {
+				lines.push(`  sent last tool: ${lastTool.name} → ${clip(typeof lastTool.result === "string" ? lastTool.result : "")}`);
+			}
+			if (entry.kind === "error") {
+				lines.push(`  error: ${String(entry.error ?? "unknown")}`);
+			} else if (isRecord(entry.answer)) {
+				const answer = entry.answer;
+				const reason = typeof answer.reason === "string" ? `, reason: ${answer.reason}` : "";
+				const confidence = typeof answer.confidence === "number" ? `, confidence ${answer.confidence.toFixed(2)}` : "";
+				lines.push(`  received: route ${String(answer.route)}, risk ${String(answer.risk)}${confidence}${reason}`);
+				lines.push(`  injected into context: ${entry.injected === true ? "yes" : "no"}; cache hit: ${entry.cacheHit === true ? "yes" : "no"}`);
+			}
+			return lines.join("\n");
+		});
+		ctx.ui.notify(`Last ${data.length} decision-api call(s) (requests/context are redacted):\n\n${blocks.join("\n\n")}`, "info");
+	};
+
 	const setEnabled = (value: boolean, ctx: ExtensionCommandContext) => {
 		enabled = value;
 		consecutiveFailures = 0;
@@ -306,12 +385,16 @@ export default function decisionApi(pi: ExtensionAPI) {
 	pi.registerCommand("decision-api", {
 		description: "Enable, disable, or inspect the decision API",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			const action = args.trim().toLowerCase();
+			const trimmed = args.trim();
+			const spaceIndex = trimmed.indexOf(" ");
+			const action = (spaceIndex < 0 ? trimmed : trimmed.slice(0, spaceIndex)).toLowerCase();
+			const rest = spaceIndex < 0 ? "" : trimmed.slice(spaceIndex + 1);
 			if (action === "enable" || action === "on") return setEnabled(true, ctx);
 			if (action === "disable" || action === "off") return setEnabled(false, ctx);
 			if (action === "stats" || action === "") return showStats(action, ctx);
 			if (action === "help") return showHelp(action, ctx);
-			ctx.ui.notify("Usage: /decision-api enable|disable|stats|help", "warning");
+			if (action === "log") return showLog(rest, ctx);
+			ctx.ui.notify(`Usage: /decision-api enable|disable|stats|help|log [n] (n defaults to ${DEFAULT_LOG_ENTRIES}, max ${MAX_LOG_ENTRIES})`, "warning");
 		},
 	});
 
@@ -355,14 +438,14 @@ export default function decisionApi(pi: ExtensionAPI) {
 					kind: "decision",
 					timestamp: new Date().toISOString(),
 					model: decisionModel,
-					request: redactText(state.request),
+					...redactState(state),
 					answer: decision,
 					injected: noteworthy,
 					durationMs: cacheHit ? 0 : Date.now() - startedAt,
 					cacheHit,
 				} satisfies DecisionAudit);
 			}
-			ctx.ui.setStatus("decision-api", `Decision API: ${decisionModel} — ${decisionText(decision)}`);
+			ctx.ui.setStatus("decision-api", `Decision API: ${decisionModel} — ${statusText(decision)}`);
 			if (!noteworthy) return;
 			return { messages: addRoutingMessage(event.messages, decisionText(decision)) };
 		} catch (error) {
@@ -374,7 +457,7 @@ export default function decisionApi(pi: ExtensionAPI) {
 					kind: "error",
 					timestamp: new Date().toISOString(),
 					model: decisionModel,
-					request: redactText(state.request),
+					...redactState(state),
 					error: reason,
 					durationMs: Date.now() - startedAt,
 				} satisfies DecisionAudit);

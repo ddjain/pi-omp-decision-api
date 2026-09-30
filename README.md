@@ -140,6 +140,7 @@ Both agents expose the same commands:
 /decision-api enable
 /decision-api disable
 /decision-api stats
+/decision-api log [n]
 /decision-api help
 ```
 
@@ -187,6 +188,14 @@ Audit entries are stored as agent-session custom entries and are not sent back t
 NIMBLE_AUDIT=0 pi
 NIMBLE_AUDIT=0 omp
 ```
+
+### Raw request/response log
+
+```text
+/decision-api log [n]
+```
+
+Shows the actual (redacted) request text, recent context, and last tool result sent to Nimble for the last `n` calls (default 3, max 10), along with the raw route/risk/confidence/reason received and whether that decision was injected into context or just logged. Use this when `stats`' aggregate counts aren't enough to tell what the model actually saw and answered for a specific step.
 
 ## Configuration
 
